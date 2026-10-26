@@ -2,11 +2,24 @@
 
 A local playground for understanding webhook retries and duplicate processing. Configure a receiver response sequence, deliver several copies of one event, and export every simulated attempt as JSON.
 
+Webhook receivers often see the same event more than once. This tool makes it easy to explore how retries and deduplication affect the number of business operations a receiver performs.
+
+## Demo
+
+![Webhook Lab delivery timeline](docs/screenshot.png)
+
+[Watch or download the recorded walkthrough (MP4)](docs/demo.mp4)
+
+The recording runs the actual Python server and browser UI. It shows recovery after failures, duplicate deliveries with deduplication enabled and disabled, retry exhaustion, and JSON export. Time in the delivery table is simulated; the walkthrough does not send webhooks to external services.
+
 ## Run
 
 Python 3.11 or newer. No third-party packages or credentials required.
 
 ```sh
+git clone https://github.com/maliabbas101/webhook-lab.git
+cd webhook-lab
+git checkout feat/local-playground
 python lab.py
 ```
 
@@ -30,6 +43,28 @@ Each copy starts the configured status sequence from the beginning. When the seq
 Copies execute sequentially and share a single event identity. Deduplication records successful processing for the duration of one simulation. This makes the difference between acknowledgements and side effects visible. It does not model concurrent duplicate races or guarantee exactly-once processing in a real system.
 
 `POST /api/simulate` accepts `statuses`, `copies`, `attempts`, `delay`, and `deduplicate`. `GET /health` provides a health check.
+
+Example request:
+
+```sh
+curl http://127.0.0.1:8000/api/simulate \
+  -H 'Content-Type: application/json' \
+  -d '{"statuses":[500,500,200],"copies":2,"attempts":4,"delay":1,"deduplicate":true}'
+```
+
+This produces six attempts, one side effect, zero failed copies, and six virtual seconds. [Example outage report](docs/sample-report.json) shows the exported format.
+
+## Record the demo again
+
+Node.js 22 is needed only for browser checks and recording, not for running the app. Keep the Python server running in another terminal, then run:
+
+```sh
+npm install --no-save playwright@1.58.2
+npx playwright install chromium
+node scripts/record-demo.cjs
+```
+
+On Linux, use `npx playwright install --with-deps chromium` if browser system dependencies are missing. The script checks recovery, deduplication, retry exhaustion, JSON download and mobile overflow, and writes the recording and screenshots to `docs/`. The same steps run in the [recording workflow](https://github.com/maliabbas101/webhook-lab/actions/workflows/demo.yml).
 
 ## Limits and next steps
 
