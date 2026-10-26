@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhook Lab</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0d1420;color:#e6edf7}body{max-width:1120px;margin:auto;padding:42px 24px}header{border-bottom:1px solid #2a374b;padding-bottom:24px;margin-bottom:28px}.eyebrow{color:#68e0c2;font-size:12px;letter-spacing:2px}h1{font-size:44px;margin:12px 0}p{color:#acbdd3;line-height:1.6}main{display:grid;grid-template-columns:320px 1fr;gap:24px}section{background:#141f30;border:1px solid #2a374b;border-radius:14px;padding:24px}h2{font-size:19px;margin-top:0}label{display:block;margin:20px 0 8px;font-size:14px}input,select,button{font:inherit;border:1px solid #3c506c;border-radius:7px;padding:11px;background:#0d1420;color:inherit}input:not([type=checkbox]),select{width:100%;box-sizing:border-box}button{cursor:pointer}button.primary{background:#68e0c2;color:#09211d;font-weight:700;width:100%;margin-top:24px;border:0}button:disabled{opacity:.5;cursor:default}.help{font-size:12px;color:#acbdd3;line-height:1.6}.summary{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}.metric{background:#0d1420;border-radius:8px;padding:14px;flex:1;min-width:95px}.metric strong{font-size:26px;display:block;color:#68e0c2}.metric span{font-size:12px;color:#acbdd3}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th,td{padding:12px 8px;border-bottom:1px solid #2a374b}th{color:#acbdd3;font-weight:500}.scroll{overflow:auto;max-height:450px}#error{color:#ff9c9c;min-height:20px}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px}.tag{color:#68e0c2}.presets{display:flex;gap:8px;flex-wrap:wrap}.presets button{font-size:12px;padding:7px}footer{margin-top:24px;color:#8ea1bb;font-size:12px}@media(max-width:760px){main{grid-template-columns:1fr}h1{font-size:34px}body{padding:24px 14px}}
+</style>
+<header><div class="eyebrow">DEVELOPER TOOLS / RELIABILITY</div><h1>Webhook Lab<span class="tag">.</span></h1><p>See what happens when delivery fails, retries pile up, and the same event arrives twice.</p><div class="help">Local simulation · virtual time · no external requests</div></header>
+<main>
+<section><h2>Configure delivery</h2><div class="presets"><button type="button" data-preset="recover">Recover</button><button type="button" data-preset="duplicate">Duplicates</button><button type="button" data-preset="outage">Outage</button></div>
+<form id="config"><label for="statuses">Receiver response sequence</label><input id="statuses" value="500,500,200" required><div class="help">Comma-separated HTTP codes. The last code repeats if attempts remain. Each copy starts the sequence again.</div>
+<label for="copies">Copies of the same event</label><input id="copies" type="number" value="2" min="1" max="10" required>
+<label for="attempts">Maximum attempts per copy</label><input id="attempts" type="number" value="4" min="1" max="10" required>
+<label for="delay">Initial retry delay (seconds)</label><input id="delay" type="number" value="1" min="1" max="60" required>
+<label><input id="deduplicate" type="checkbox" checked> Deduplicate successful events</label>
+<button class="primary" id="run">Run simulation →</button><p id="error" role="alert"></p></form></section>
+<section><div class="toolbar"><h2>Delivery timeline</h2><button id="export" disabled>Export JSON</button></div><p class="help">Retries: 408, 429 and 5xx. Other non-2xx responses stop delivery. These are this lab's rules, not every provider's policy.</p>
+<div class="summary"><div class="metric"><strong id="processed">—</strong><span>Side effects</span></div><div class="metric"><strong id="failed">—</strong><span>Failed copies</span></div><div class="metric"><strong id="elapsed">—</strong><span>Virtual seconds</span></div></div>
+<div class="scroll"><table><thead><tr><th>Copy</th><th>Try</th><th>Time</th><th>HTTP</th><th>Outcome</th></tr></thead><tbody id="rows"><tr><td colspan="5">Run a scenario to inspect each delivery attempt.</td></tr></tbody></table></div><p class="help">Compare the Duplicates preset with deduplication on and off. Successful delivery does not necessarily mean a new side effect.</p></section>
+</main><footer>Simulation scope: copies run sequentially, share one event ID, and deduplication lasts for one run. No actual webhooks, persistent state, concurrency, jitter, or Retry-After handling.</footer>
+<script>
+const get = id => document.getElementById(id);
+let report;
+document.querySelectorAll('[data-preset]').forEach(button => button.onclick = () => {
+  const presets = {recover: '500,500,200', duplicate: '200', outage: '503'};
+  get('statuses').value = presets[button.dataset.preset];
+});
+get('config').onsubmit = async event => {
+  event.preventDefault();
+  get('error').textContent = '';
+  get('run').disabled = true;
+  get('export').disabled = true;
+  const config = {
+    statuses: get('statuses').value.split(',').map(value => Number(value.trim())),
+    copies: Number(get('copies').value), attempts: Number(get('attempts').value),
+    delay: Number(get('delay').value), deduplicate: get('deduplicate').checked
+  };
+  try {
+    const response = await fetch('/api/simulate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config)});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Simulation failed.');
+    report = {config, result};
+    get('processed').textContent = result.processed;
+    get('failed').textContent = result.failed_deliveries;
+    get('elapsed').textContent = result.virtual_seconds;
+    get('rows').replaceChildren();
+    result.rows.forEach(row => {
+      const tr = document.createElement('tr');
+      [row.copy, row.attempt, row.at + 's', row.status, row.outcome].forEach(value => {
+        const td = document.createElement('td'); td.textContent = value; tr.append(td);
+      });
+      get('rows').append(tr);
+    });
+    get('export').disabled = false;
+  } catch (error) {get('error').textContent = error.message;}
+  finally {get('run').disabled = false;}
+};
+get('export').onclick = () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'webhook-lab.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+</script>
+</html>
